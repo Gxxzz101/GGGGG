@@ -1,0 +1,391 @@
+Index: .idea/MVP.iml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/MVP.iml b/.idea/MVP.iml
+new file mode 100644
+--- /dev/null	(date 1779414213372)
++++ b/.idea/MVP.iml	(date 1779414213372)
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<module type="JAVA_MODULE" version="4">
++  <component name="NewModuleRootManager" inherit-compiler-output="true">
++    <exclude-output />
++    <content url="file://$MODULE_DIR$" />
++    <orderEntry type="inheritedJdk" />
++    <orderEntry type="sourceFolder" forTests="false" />
++  </component>
++</module>
+\ No newline at end of file
+Index: .idea/vcs.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/vcs.xml b/.idea/vcs.xml
+new file mode 100644
+--- /dev/null	(date 1779414213385)
++++ b/.idea/vcs.xml	(date 1779414213385)
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<project version="4">
++  <component name="VcsDirectoryMappings">
++    <mapping directory="" vcs="Git" />
++  </component>
++</project>
+\ No newline at end of file
+Index: .idea/modules.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/modules.xml b/.idea/modules.xml
+new file mode 100644
+--- /dev/null	(date 1779414213382)
++++ b/.idea/modules.xml	(date 1779414213382)
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<project version="4">
++  <component name="ProjectModuleManager">
++    <modules>
++      <module fileurl="file://$PROJECT_DIR$/.idea/MVP.iml" filepath="$PROJECT_DIR$/.idea/MVP.iml" />
++    </modules>
++  </component>
++</project>
+\ No newline at end of file
+Index: file_organizer.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/file_organizer.py b/file_organizer.py
+new file mode 100644
+--- /dev/null	(date 1779414239369)
++++ b/file_organizer.py	(date 1779414239369)
+@@ -0,0 +1,290 @@
++"""
++本地电脑文件智能规划与整理工具（单次运行版）。
++
++安全设计原则：
++1. 不做后台实时监控，只有调用 start_organizing() 时才执行一次扫描。
++2. 文件进入 AI 或整理逻辑之前，必须先通过 PrivacyGatekeeper 隐私拦截器。
++3. 当前版本不会读取文件内容、不会移动文件，只打印安全占位信息。
++"""
++
++from __future__ import annotations
++
++import os
++from dataclasses import dataclass, field
++from pathlib import Path
++from typing import Iterable
++
++
++@dataclass
++class Configuration:
++    """集中管理扫描、归档和安全拦截相关配置。"""
++
++    # 需要扫描的源头文件夹路径，例如：Path.home() / "Desktop"
++    source_folder: str
++
++    # 整理后的目标根目录。当前版本仅保存配置，不会真实移动文件。
++    target_root_folder: str
++
++    # 绝对禁区目录：这些目录下的任何文件都不可查看、不可挪动、不可传给 AI。
++    forbidden_folders: list[str] = field(default_factory=list)
++
++    # 文件名敏感词黑名单，不区分大小写匹配。
++    sensitive_keywords: list[str] = field(
++        default_factory=lambda: ["[Lock]", "[机密]", "password", "密钥"]
++    )
++
++    # 安全后缀黑名单，不区分大小写匹配。
++    blocked_extensions: set[str] = field(
++        default_factory=lambda: {".pem", ".key", ".kdbx"}
++    )
++
++    def __post_init__(self) -> None:
++        """初始化后统一规范化配置，降低路径绕过和大小写绕过风险。"""
++
++        self.source_folder = self._normalize_path(self.source_folder)
++        self.target_root_folder = self._normalize_path(self.target_root_folder)
++        self.forbidden_folders = [
++            self._normalize_path(folder) for folder in self.forbidden_folders
++        ]
++        self.sensitive_keywords = [
++            keyword.lower() for keyword in self.sensitive_keywords
++        ]
++        self.blocked_extensions = {
++            extension.lower()
++            if extension.startswith(".")
++            else f".{extension.lower()}"
++            for extension in self.blocked_extensions
++        }
++
++    @staticmethod
++    def _normalize_path(path: str) -> str:
++        """
++        将路径转换为绝对路径并规范化。
++
++        strict=False 表示路径即使不存在也能被解析，适合配置阶段使用。
++        """
++
++        return str(Path(path).expanduser().resolve(strict=False))
++
++
++class PrivacyGatekeeper:
++    """隐私拦截器：负责判断文件是否允许进入后续整理流程。"""
++
++    def __init__(self, config: Configuration) -> None:
++        self.config = config
++
++    def is_safe_to_process(self, file_path: str) -> bool:
++        """
++        核心过滤函数。
++
++        只要命中以下任意规则，就会打印安全警报并返回 False：
++        1. 文件路径属于绝对禁区。
++        2. 文件名包含敏感词。
++        3. 文件后缀属于安全黑名单。
++        """
++
++        normalized_file_path = Configuration._normalize_path(file_path)
++        path_obj = Path(normalized_file_path)
++
++        if self._is_inside_forbidden_folder(normalized_file_path):
++            self._print_security_alert(
++                normalized_file_path,
++                "文件位于绝对禁区目录内，已阻止处理。",
++            )
++            return False
++
++        file_name_lower = path_obj.name.lower()
++        for keyword in self.config.sensitive_keywords:
++            if keyword and keyword in file_name_lower:
++                self._print_security_alert(
++                    normalized_file_path,
++                    f"文件名包含敏感词：{keyword}",
++                )
++                return False
++
++        file_extension = path_obj.suffix.lower()
++        if file_extension in self.config.blocked_extensions:
++            self._print_security_alert(
++                normalized_file_path,
++                f"文件后缀属于安全黑名单：{file_extension}",
++            )
++            return False
++
++        return True
++
++    def _is_inside_forbidden_folder(self, file_path: str) -> bool:
++        """判断文件是否位于任何绝对禁区目录中。"""
++
++        comparable_file_path = self._to_comparable_path(file_path)
++        for forbidden_folder in self.config.forbidden_folders:
++            comparable_forbidden_folder = self._to_comparable_path(forbidden_folder)
++            try:
++                common_path = os.path.commonpath(
++                    [comparable_file_path, comparable_forbidden_folder]
++                )
++            except ValueError:
++                # Windows 不同盘符等场景会触发 ValueError，视为不在同一目录树。
++                continue
++
++            if common_path == comparable_forbidden_folder:
++                return True
++
++        return False
++
++    @staticmethod
++    def _to_comparable_path(path: str) -> str:
++        """转换为适合安全比较的路径字符串。"""
++
++        return os.path.normcase(os.path.normpath(path)).lower()
++
++    @staticmethod
++    def _print_security_alert(file_path: str, reason: str) -> None:
++        """打印醒目的安全警报。"""
++
++        print("=" * 80)
++        print("!!! 安全警报：文件已被隐私拦截器阻止 !!!")
++        print(f"原因：{reason}")
++        print(f"文件：{file_path}")
++        print("处理结果：不会查看、不会移动、不会传给 AI。")
++        print("=" * 80)
++
++
++class OnDemandFileOrganizer:
++    """按需扫盘整理器：只有主动调用 start_organizing() 才会执行扫描。"""
++
++    def __init__(self, config: Configuration) -> None:
++        self.config = config
++        self.gatekeeper = PrivacyGatekeeper(config)
++
++    def start_organizing(self) -> None:
++        """
++        主入口：执行一次性扫描与整理。
++
++        遍历时会先剪枝绝对禁区目录，避免深入扫描禁区内部文件。
++        每个非禁区文件仍会再次经过 is_safe_to_process()，形成双层保护。
++        """
++
++        if not os.path.isdir(self.config.source_folder):
++            print(f"源头文件夹不存在或不是目录：{self.config.source_folder}")
++            return
++
++        print(f"开始扫描源头文件夹：{self.config.source_folder}")
++        print(f"目标归档根目录配置为：{self.config.target_root_folder}")
++
++        try:
++            walker = os.walk(
++                self.config.source_folder,
++                topdown=True,
++                onerror=self._handle_walk_error,
++            )
++
++            for current_dir, dir_names, file_names in walker:
++                self._remove_forbidden_directories_from_walk(current_dir, dir_names)
++
++                for file_name in file_names:
++                    file_path = os.path.join(current_dir, file_name)
++                    try:
++                        if not self.gatekeeper.is_safe_to_process(file_path):
++                            continue
++
++                        self.analyze_and_move_file(file_path)
++                    except (PermissionError, OSError) as error:
++                        self._print_skip_warning(file_path, error)
++        except (PermissionError, OSError) as error:
++            self._print_skip_warning(self.config.source_folder, error)
++
++        print("本次扫描结束。")
++
++    def analyze_and_move_file(self, file_path: str) -> None:
++        """
++        AI 处理预留函数。
++
++        当前版本只打印占位信息，不读取文件内容、不移动文件。
++        未来可在这里接入 AI 分类、目标路径计算和安全移动逻辑。
++        """
++
++        print(f"文件安全，准备交给 AI 归档：{file_path}")
++
++    def _remove_forbidden_directories_from_walk(
++        self,
++        current_dir: str,
++        dir_names: list[str],
++    ) -> None:
++        """
++        在 os.walk 进入子目录前移除禁区目录。
++
++        因为 os.walk(topdown=True) 允许原地修改 dir_names，所以这里可以阻止
++        遍历器继续深入绝对禁区目录。
++        """
++
++        safe_dir_names = []
++        for dir_name in dir_names:
++            candidate_dir = os.path.join(current_dir, dir_name)
++            try:
++                if self.gatekeeper._is_inside_forbidden_folder(
++                    Configuration._normalize_path(candidate_dir)
++                ):
++                    PrivacyGatekeeper._print_security_alert(
++                        candidate_dir,
++                        "目录属于绝对禁区，已跳过整个目录树。",
++                    )
++                    continue
++
++                safe_dir_names.append(dir_name)
++            except (PermissionError, OSError) as error:
++                self._print_skip_warning(candidate_dir, error)
++
++        dir_names[:] = safe_dir_names
++
++    @staticmethod
++    def _handle_walk_error(error: OSError) -> None:
++        """处理 os.walk 遇到的目录访问异常。"""
++
++        print("-" * 80)
++        print("扫描警告：遇到无法访问的目录，已跳过。")
++        print(f"错误信息：{error}")
++        print("-" * 80)
++
++    @staticmethod
++    def _print_skip_warning(path: str, error: BaseException) -> None:
++        """打印普通跳过警告，确保异常不会导致程序崩溃。"""
++
++        print("-" * 80)
++        print("扫描警告：遇到无法处理的路径，已跳过。")
++        print(f"路径：{path}")
++        print(f"错误信息：{error}")
++        print("-" * 80)
++
++
++def build_example_config() -> Configuration:
++    """
++    构建示例配置。
++
++    使用前请按自己的电脑路径修改 source_folder、target_root_folder
++    和 forbidden_folders。
++    """
++
++    desktop_path = str(Path.home() / "Desktop")
++
++    return Configuration(
++        source_folder=desktop_path,
++        target_root_folder=str(Path.home() / "Codex_Archive"),
++        forbidden_folders=[
++            str(Path.home() / "Documents" / "Private"),
++            str(Path.home() / ".ssh"),
++        ],
++        sensitive_keywords=["[Lock]", "[机密]", "password", "密钥"],
++        blocked_extensions={".pem", ".key", ".kdbx"},
++    )
++
++
++def main() -> None:
++    """命令行运行入口：直接运行脚本时，只执行一次扫描。"""
++
++    config = build_example_config()
++    organizer = OnDemandFileOrganizer(config)
++    organizer.start_organizing()
++
++
++if __name__ == "__main__":
++    main()
+Index: .idea/.gitignore
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/.gitignore b/.idea/.gitignore
+new file mode 100644
+--- /dev/null	(date 1779414213525)
++++ b/.idea/.gitignore	(date 1779414213525)
+@@ -0,0 +1,8 @@
++# Default ignored files
++/shelf/
++/workspace.xml
++# Editor-based HTTP Client requests
++/httpRequests/
++# Datasource local storage ignored files
++/dataSources/
++/dataSources.local.xml
+Index: .idea/misc.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/misc.xml b/.idea/misc.xml
+new file mode 100644
+--- /dev/null	(date 1779414213389)
++++ b/.idea/misc.xml	(date 1779414213389)
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<project version="4">
++  <component name="ProjectRootManager">
++    <output url="file://$PROJECT_DIR$/out" />
++  </component>
++</project>
+\ No newline at end of file
