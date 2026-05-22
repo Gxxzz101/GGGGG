@@ -1,0 +1,15 @@
+{
+  "name": "ai-file-organizer",
+  "version": "0.1.0",
+  "description": "Desktop software for scanning files with AI and safely organizing them after user approval.",
+  "main": "src/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "dependencies": {
+    "electron": "^40.0.0"
+  },
+  "devDependencies": {}
+}
