@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI File Organizer</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar">
+        <div>
+          <p class="eyebrow">AI File Organizer</p>
+          <h1>文件整理工作台</h1>
+        </div>
+
+        <section class="control-block">
+          <button id="chooseFolderButton" class="primary-button">选择文件夹</button>
+          <button id="scanButton" class="secondary-button" disabled>扫描并生成计划</button>
+          <button id="executeButton" class="danger-button" disabled>执行整理</button>
+        </section>
+
+        <section class="folder-panel">
+          <span class="label">当前文件夹</span>
+          <p id="folderPath" class="folder-path">未选择</p>
+        </section>
+
+        <section class="stats-grid">
+          <div>
+            <span id="fileCount">0</span>
+            <small>文件</small>
+          </div>
+          <div>
+            <span id="providerName">-</span>
+            <small>分类方式</small>
+          </div>
+          <div>
+            <span id="reviewCount">0</span>
+            <small>需复核</small>
+          </div>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <header class="workspace-header">
+          <div>
+            <h2>整理计划</h2>
+            <p id="statusText">选择一个文件夹开始。</p>
+          </div>
+          <div class="filter-group" role="group" aria-label="筛选">
+            <button class="filter-button active" data-filter="all">全部</button>
+            <button class="filter-button" data-filter="review">复核</button>
+            <button class="filter-button" data-filter="ready">可执行</button>
+          </div>
+        </header>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>原文件</th>
+                <th>目标位置</th>
+                <th>置信度</th>
+                <th>原因</th>
+              </tr>
+            </thead>
+            <tbody id="planTableBody">
+              <tr class="empty-row">
+                <td colspan="4">暂无整理计划</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="confirmDialog">
+      <form method="dialog">
+        <h3>确认执行整理？</h3>
+        <p>软件将按照当前计划移动文件。此 MVP 尚未包含撤销历史，请确认你已检查目标位置。</p>
+        <div class="dialog-actions">
+          <button value="cancel" class="secondary-button">取消</button>
+          <button value="confirm" class="danger-button">确认执行</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
